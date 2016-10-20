@@ -27,8 +27,6 @@ func main() {
 	p.BorderLabel = "Text Box"
 	p.BorderFg = ui.ColorCyan
 	p.Handle("/timer/1s", func(e ui.Event) {
-		p.Lock()
-		defer p.Unlock()
 		cnt := e.Data.(ui.EvtTimer)
 		if cnt.Count%2 == 0 {
 			p.TextFgColor = ui.ColorRed
@@ -130,18 +128,6 @@ func main() {
 
 	draw := func(t int) {
 		func() {
-			g.Lock()
-			defer g.Unlock()
-			list.Lock()
-			defer list.Unlock()
-			sp.Lock()
-			defer sp.Unlock()
-			lc.Lock()
-			defer lc.Unlock()
-			lc1.Lock()
-			defer lc1.Unlock()
-			bc.Lock()
-			defer bc.Unlock()
 			g.Percent = t % 101
 			list.Items = strs[t%9:]
 			sp.Lines[0].Data = spdata[:30+t%50]

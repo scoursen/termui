@@ -50,105 +50,105 @@ func NewBarChart() *BarChart {
 }
 
 func (bc *BarChart) layout() {
-	bc.Lock()
-	defer bc.Unlock()
-	bc.numBar = bc.innerArea.Dx() / (bc.BarGap + bc.BarWidth)
-	bc.labels = make([][]rune, bc.numBar)
-	bc.dataNum = make([][]rune, len(bc.Data))
+	Defer(func() {
+		bc.numBar = bc.innerArea.Dx() / (bc.BarGap + bc.BarWidth)
+		bc.labels = make([][]rune, bc.numBar)
+		bc.dataNum = make([][]rune, len(bc.Data))
 
-	for i := 0; i < bc.numBar && i < len(bc.DataLabels) && i < len(bc.Data); i++ {
-		bc.labels[i] = trimStr2Runes(bc.DataLabels[i], bc.BarWidth)
-		n := bc.Data[i]
-		s := fmt.Sprint(n)
-		bc.dataNum[i] = trimStr2Runes(s, bc.BarWidth)
-	}
-
-	//bc.max = bc.Data[0] //  what if Data is nil? Sometimes when bar graph is nill it produces panic with panic: runtime error: index out of range
-	// Asign a negative value to get maxvalue auto-populates
-	if bc.max == 0 {
-		bc.max = -1
-	}
-	for i := 0; i < len(bc.Data); i++ {
-		if bc.max < bc.Data[i] {
-			bc.max = bc.Data[i]
+		for i := 0; i < bc.numBar && i < len(bc.DataLabels) && i < len(bc.Data); i++ {
+			bc.labels[i] = trimStr2Runes(bc.DataLabels[i], bc.BarWidth)
+			n := bc.Data[i]
+			s := fmt.Sprint(n)
+			bc.dataNum[i] = trimStr2Runes(s, bc.BarWidth)
 		}
-	}
-	bc.scale = float64(bc.max) / float64(bc.innerArea.Dy()-1)
+
+		//bc.max = bc.Data[0] //  what if Data is nil? Sometimes when bar graph is nill it produces panic with panic: runtime error: index out of range
+		// Asign a negative value to get maxvalue auto-populates
+		if bc.max == 0 {
+			bc.max = -1
+		}
+		for i := 0; i < len(bc.Data); i++ {
+			if bc.max < bc.Data[i] {
+				bc.max = bc.Data[i]
+			}
+		}
+		bc.scale = float64(bc.max) / float64(bc.innerArea.Dy()-1)
+	})
 }
 
 func (bc *BarChart) SetMax(max int) {
-	bc.Lock()
-	defer bc.Unlock()
-	if max > 0 {
-		bc.max = max
-	}
+	Defer(func() {
+		if max > 0 {
+			bc.max = max
+		}
+	})
 }
 
 // Buffer implements Bufferer interface.
 func (bc *BarChart) Buffer() Buffer {
 	buf := bc.Block.Buffer()
 	bc.layout()
-	bc.RLock()
-	defer bc.RUnlock()
+	ch := make(chan Buffer)
+	Defer(func() {
+		for i := 0; i < bc.numBar && i < len(bc.Data) && i < len(bc.DataLabels); i++ {
+			h := int(float64(bc.Data[i]) / bc.scale)
+			oftX := i * (bc.BarWidth + bc.BarGap)
 
-	for i := 0; i < bc.numBar && i < len(bc.Data) && i < len(bc.DataLabels); i++ {
-		h := int(float64(bc.Data[i]) / bc.scale)
-		oftX := i * (bc.BarWidth + bc.BarGap)
+			barBg := bc.Bg
+			barFg := bc.BarColor
 
-		barBg := bc.Bg
-		barFg := bc.BarColor
-
-		if bc.CellChar == ' ' {
-			barBg = bc.BarColor
-			barFg = ColorDefault
-			if bc.BarColor == ColorDefault { // the same as above
-				barBg |= AttrReverse
+			if bc.CellChar == ' ' {
+				barBg = bc.BarColor
+				barFg = ColorDefault
+				if bc.BarColor == ColorDefault { // the same as above
+					barBg |= AttrReverse
+				}
 			}
-		}
 
-		// plot bar
-		for j := 0; j < bc.BarWidth; j++ {
-			for k := 0; k < h; k++ {
+			// plot bar
+			for j := 0; j < bc.BarWidth; j++ {
+				for k := 0; k < h; k++ {
+					c := Cell{
+						Ch: bc.CellChar,
+						Bg: barBg,
+						Fg: barFg,
+					}
+
+					x := bc.innerArea.Min.X + i*(bc.BarWidth+bc.BarGap) + j
+					y := bc.innerArea.Min.Y + bc.innerArea.Dy() - 2 - k
+					buf.Set(x, y, c)
+				}
+			}
+			// plot text
+			for j, k := 0, 0; j < len(bc.labels[i]); j++ {
+				w := charWidth(bc.labels[i][j])
 				c := Cell{
-					Ch: bc.CellChar,
+					Ch: bc.labels[i][j],
+					Bg: bc.Bg,
+					Fg: bc.TextColor,
+				}
+				y := bc.innerArea.Min.Y + bc.innerArea.Dy() - 1
+				x := bc.innerArea.Min.X + oftX + k
+				buf.Set(x, y, c)
+				k += w
+			}
+			// plot num
+			for j := 0; j < len(bc.dataNum[i]); j++ {
+				c := Cell{
+					Ch: bc.dataNum[i][j],
+					Fg: bc.NumColor,
 					Bg: barBg,
-					Fg: barFg,
 				}
 
-				x := bc.innerArea.Min.X + i*(bc.BarWidth+bc.BarGap) + j
-				y := bc.innerArea.Min.Y + bc.innerArea.Dy() - 2 - k
+				if h == 0 {
+					c.Bg = bc.Bg
+				}
+				x := bc.innerArea.Min.X + oftX + (bc.BarWidth-len(bc.dataNum[i]))/2 + j
+				y := bc.innerArea.Min.Y + bc.innerArea.Dy() - 2
 				buf.Set(x, y, c)
 			}
 		}
-		// plot text
-		for j, k := 0, 0; j < len(bc.labels[i]); j++ {
-			w := charWidth(bc.labels[i][j])
-			c := Cell{
-				Ch: bc.labels[i][j],
-				Bg: bc.Bg,
-				Fg: bc.TextColor,
-			}
-			y := bc.innerArea.Min.Y + bc.innerArea.Dy() - 1
-			x := bc.innerArea.Min.X + oftX + k
-			buf.Set(x, y, c)
-			k += w
-		}
-		// plot num
-		for j := 0; j < len(bc.dataNum[i]); j++ {
-			c := Cell{
-				Ch: bc.dataNum[i][j],
-				Fg: bc.NumColor,
-				Bg: barBg,
-			}
-
-			if h == 0 {
-				c.Bg = bc.Bg
-			}
-			x := bc.innerArea.Min.X + oftX + (bc.BarWidth-len(bc.dataNum[i]))/2 + j
-			y := bc.innerArea.Min.Y + bc.innerArea.Dy() - 2
-			buf.Set(x, y, c)
-		}
-	}
-
-	return buf
+		ch <- buf
+	})
+	return <-ch
 }

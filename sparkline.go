@@ -58,8 +58,6 @@ func NewSparklines(ss ...Sparkline) *Sparklines {
 }
 
 func (sl *Sparklines) update() {
-	sl.Lock()
-	defer sl.Unlock()
 	for i, v := range sl.Lines {
 		if v.Title == "" {
 			sl.Lines[i].displayHeight = v.Height
@@ -102,70 +100,71 @@ func (sl *Sparklines) update() {
 // Buffer implements Bufferer interface.
 func (sl *Sparklines) Buffer() Buffer {
 	buf := sl.Block.Buffer()
-	sl.update()
-	sl.RLock()
-	defer sl.RUnlock()
+	ch := make(chan Buffer)
+	Defer(func() {
+		sl.update()
 
-	oftY := 0
-	for i := 0; i < sl.displayLines; i++ {
-		l := sl.Lines[i]
-		data := l.Data
+		oftY := 0
+		for i := 0; i < sl.displayLines; i++ {
+			l := sl.Lines[i]
+			data := l.Data
 
-		if len(data) > sl.innerArea.Dx() {
-			data = data[len(data)-sl.innerArea.Dx():]
-		}
+			if len(data) > sl.innerArea.Dx() {
+				data = data[len(data)-sl.innerArea.Dx():]
+			}
 
-		if l.Title != "" {
-			rs := trimStr2Runes(l.Title, sl.innerArea.Dx())
-			oftX := 0
-			for _, v := range rs {
-				w := charWidth(v)
-				c := Cell{
-					Ch: v,
-					Fg: l.TitleColor,
-					Bg: sl.Bg,
+			if l.Title != "" {
+				rs := trimStr2Runes(l.Title, sl.innerArea.Dx())
+				oftX := 0
+				for _, v := range rs {
+					w := charWidth(v)
+					c := Cell{
+						Ch: v,
+						Fg: l.TitleColor,
+						Bg: sl.Bg,
+					}
+					x := sl.innerArea.Min.X + oftX
+					y := sl.innerArea.Min.Y + oftY
+					buf.Set(x, y, c)
+					oftX += w
 				}
-				x := sl.innerArea.Min.X + oftX
-				y := sl.innerArea.Min.Y + oftY
-				buf.Set(x, y, c)
-				oftX += w
-			}
-		}
-
-		for j, v := range data {
-			// display height of the data point, zero when data is negative
-			h := int(float32(v)*l.scale + 0.5)
-			if v < 0 {
-				h = 0
 			}
 
-			barCnt := h / 8
-			barMod := h % 8
-			for jj := 0; jj < barCnt; jj++ {
-				c := Cell{
-					Ch: ' ', // => sparks[7]
-					Bg: l.LineColor,
+			for j, v := range data {
+				// display height of the data point, zero when data is negative
+				h := int(float32(v)*l.scale + 0.5)
+				if v < 0 {
+					h = 0
 				}
-				x := sl.innerArea.Min.X + j
-				y := sl.innerArea.Min.Y + oftY + l.Height - jj
 
-				//p.Bg = sl.BgColor
-				buf.Set(x, y, c)
-			}
-			if barMod != 0 {
-				c := Cell{
-					Ch: sparks[barMod-1],
-					Fg: l.LineColor,
-					Bg: sl.Bg,
+				barCnt := h / 8
+				barMod := h % 8
+				for jj := 0; jj < barCnt; jj++ {
+					c := Cell{
+						Ch: ' ', // => sparks[7]
+						Bg: l.LineColor,
+					}
+					x := sl.innerArea.Min.X + j
+					y := sl.innerArea.Min.Y + oftY + l.Height - jj
+
+					//p.Bg = sl.BgColor
+					buf.Set(x, y, c)
 				}
-				x := sl.innerArea.Min.X + j
-				y := sl.innerArea.Min.Y + oftY + l.Height - barCnt
-				buf.Set(x, y, c)
+				if barMod != 0 {
+					c := Cell{
+						Ch: sparks[barMod-1],
+						Fg: l.LineColor,
+						Bg: sl.Bg,
+					}
+					x := sl.innerArea.Min.X + j
+					y := sl.innerArea.Min.Y + oftY + l.Height - barCnt
+					buf.Set(x, y, c)
+				}
 			}
+
+			oftY += l.displayHeight
 		}
-
-		oftY += l.displayHeight
-	}
-
-	return buf
+		ch <- buf
+	})
+	return <-ch
 }

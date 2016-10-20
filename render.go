@@ -5,6 +5,7 @@
 package termui
 
 import (
+	"context"
 	"image"
 	"sync"
 	"time"
@@ -56,22 +57,24 @@ func Init() error {
 	}()
 
 	return nil
+
 }
 
 // Close finalizes termui library,
 // should be called after successful initialization when termui's functionality isn't required anymore.
 func Close() {
-	once.Do(tm.Close)
+	once.Do(func() {
+		Defer(tm.Close)
+	})
 }
 
 var renderLock sync.Mutex
 var once sync.Once
 
-func termSync() {
-	renderLock.Lock()
-	defer renderLock.Unlock()
+func termSync() (int, int) {
 	tm.Sync()
 	termWidth, termHeight = tm.Size()
+	return termWidth, termHeight
 }
 
 // TermWidth returns the current terminal's width.
@@ -89,9 +92,6 @@ func TermHeight() int {
 // Render renders all Bufferer in the given order from left to right,
 // right could overlap on left ones.
 func render(bs ...Bufferer) {
-
-	renderLock.Lock()
-	defer renderLock.Unlock()
 	for _, b := range bs {
 
 		buf := b.Buffer()
@@ -107,13 +107,15 @@ func render(bs ...Bufferer) {
 	}
 
 	// render
-	tm.Flush()
+	Defer(func() {
+		tm.Flush()
+	})
 }
 
 func Clear() {
-	renderLock.Lock()
-	defer renderLock.Unlock()
-	tm.Clear(tm.ColorDefault, toTmAttr(ThemeAttr("bg")))
+	Defer(func() {
+		tm.Clear(tm.ColorDefault, toTmAttr(ThemeAttr("bg")))
+	})
 }
 
 func clearArea(r image.Rectangle, bg Attribute) {
@@ -125,8 +127,10 @@ func clearArea(r image.Rectangle, bg Attribute) {
 }
 
 func ClearArea(r image.Rectangle, bg Attribute) {
-	clearArea(r, bg)
-	tm.Flush()
+	Defer(func() {
+		clearArea(r, bg)
+		tm.Flush()
+	})
 }
 
 var renderJobs chan []Bufferer
@@ -137,4 +141,38 @@ func Render(bs ...Bufferer) {
 	for _, b := range bs {
 		render(b)
 	}
+}
+
+var (
+	worker = NewWorker(context.Background())
+)
+
+type workerFunc func()
+type deferredWorker struct {
+	workerChan chan workerFunc
+	ctx        context.Context
+}
+
+func (d *deferredWorker) loop() {
+	for {
+		select {
+		case <-d.ctx.Done():
+			return
+		case wf := <-d.workerChan:
+			wf()
+		}
+	}
+}
+
+func Defer(wf workerFunc) {
+	worker.workerChan <- wf
+}
+
+func NewWorker(ctx context.Context) *deferredWorker {
+	d := deferredWorker{
+		workerChan: make(chan workerFunc),
+		ctx:        ctx,
+	}
+	go d.loop()
+	return &d
 }

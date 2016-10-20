@@ -49,42 +49,44 @@ func NewList() *List {
 // Buffer implements Bufferer interface.
 func (l *List) Buffer() Buffer {
 	buf := l.Block.Buffer()
-	l.RLock()
-	defer l.RUnlock()
-	switch l.Overflow {
-	case "wrap":
-		cs := DefaultTxBuilder.Build(strings.Join(l.Items, "\n"), l.ItemFgColor, l.ItemBgColor)
-		i, j, k := 0, 0, 0
-		for i < l.innerArea.Dy() && k < len(cs) {
-			w := cs[k].Width()
-			if cs[k].Ch == '\n' || j+w > l.innerArea.Dx() {
-				i++
-				j = 0
-				if cs[k].Ch == '\n' {
-					k++
+	ch := make(chan Buffer)
+	Defer(func() {
+		switch l.Overflow {
+		case "wrap":
+			cs := DefaultTxBuilder.Build(strings.Join(l.Items, "\n"), l.ItemFgColor, l.ItemBgColor)
+			i, j, k := 0, 0, 0
+			for i < l.innerArea.Dy() && k < len(cs) {
+				w := cs[k].Width()
+				if cs[k].Ch == '\n' || j+w > l.innerArea.Dx() {
+					i++
+					j = 0
+					if cs[k].Ch == '\n' {
+						k++
+					}
+					continue
 				}
-				continue
-			}
-			buf.Set(l.innerArea.Min.X+j, l.innerArea.Min.Y+i, cs[k])
+				buf.Set(l.innerArea.Min.X+j, l.innerArea.Min.Y+i, cs[k])
 
-			k++
-			j++
-		}
+				k++
+				j++
+			}
 
-	case "hidden":
-		trimItems := l.Items
-		if len(trimItems) > l.innerArea.Dy() {
-			trimItems = trimItems[:l.innerArea.Dy()]
-		}
-		for i, v := range trimItems {
-			cs := DTrimTxCls(DefaultTxBuilder.Build(v, l.ItemFgColor, l.ItemBgColor), l.innerArea.Dx())
-			j := 0
-			for _, vv := range cs {
-				w := vv.Width()
-				buf.Set(l.innerArea.Min.X+j, l.innerArea.Min.Y+i, vv)
-				j += w
+		case "hidden":
+			trimItems := l.Items
+			if len(trimItems) > l.innerArea.Dy() {
+				trimItems = trimItems[:l.innerArea.Dy()]
+			}
+			for i, v := range trimItems {
+				cs := DTrimTxCls(DefaultTxBuilder.Build(v, l.ItemFgColor, l.ItemBgColor), l.innerArea.Dx())
+				j := 0
+				for _, vv := range cs {
+					w := vv.Width()
+					buf.Set(l.innerArea.Min.X+j, l.innerArea.Min.Y+i, vv)
+					j += w
+				}
 			}
 		}
-	}
-	return buf
+		ch <- buf
+	})
+	return <-ch
 }

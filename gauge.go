@@ -52,60 +52,62 @@ func NewGauge() *Gauge {
 // Buffer implements Bufferer interface.
 func (g *Gauge) Buffer() Buffer {
 	buf := g.Block.Buffer()
-	g.RLock()
-	defer g.RUnlock()
+	ch := make(chan Buffer)
+	Defer(func() {
 
-	// plot bar
-	w := g.Percent * g.innerArea.Dx() / 100
-	for i := 0; i < g.innerArea.Dy(); i++ {
-		for j := 0; j < w; j++ {
-			c := Cell{}
-			c.Ch = ' '
-			c.Bg = g.BarColor
-			if c.Bg == ColorDefault {
-				c.Bg |= AttrReverse
+		// plot bar
+		w := g.Percent * g.innerArea.Dx() / 100
+		for i := 0; i < g.innerArea.Dy(); i++ {
+			for j := 0; j < w; j++ {
+				c := Cell{}
+				c.Ch = ' '
+				c.Bg = g.BarColor
+				if c.Bg == ColorDefault {
+					c.Bg |= AttrReverse
+				}
+				buf.Set(g.innerArea.Min.X+j, g.innerArea.Min.Y+i, c)
 			}
-			buf.Set(g.innerArea.Min.X+j, g.innerArea.Min.Y+i, c)
-		}
-	}
-
-	// plot percentage
-	s := strings.Replace(g.Label, "{{percent}}", strconv.Itoa(g.Percent), -1)
-	pry := g.innerArea.Min.Y + g.innerArea.Dy()/2
-	rs := str2runes(s)
-	var pos int
-	switch g.LabelAlign {
-	case AlignLeft:
-		pos = 0
-
-	case AlignCenter:
-		pos = (g.innerArea.Dx() - strWidth(s)) / 2
-
-	case AlignRight:
-		pos = g.innerArea.Dx() - strWidth(s) - 1
-	}
-	pos += g.innerArea.Min.X
-
-	for i, v := range rs {
-		c := Cell{
-			Ch: v,
-			Fg: g.PercentColor,
 		}
 
-		if w+g.innerArea.Min.X > pos+i {
-			c.Bg = g.BarColor
-			if c.Bg == ColorDefault {
-				c.Bg |= AttrReverse
-			}
+		// plot percentage
+		s := strings.Replace(g.Label, "{{percent}}", strconv.Itoa(g.Percent), -1)
+		pry := g.innerArea.Min.Y + g.innerArea.Dy()/2
+		rs := str2runes(s)
+		var pos int
+		switch g.LabelAlign {
+		case AlignLeft:
+			pos = 0
 
-			if g.PercentColorHighlighted != ColorUndef {
-				c.Fg = g.PercentColorHighlighted
-			}
-		} else {
-			c.Bg = g.Block.Bg
+		case AlignCenter:
+			pos = (g.innerArea.Dx() - strWidth(s)) / 2
+
+		case AlignRight:
+			pos = g.innerArea.Dx() - strWidth(s) - 1
 		}
+		pos += g.innerArea.Min.X
 
-		buf.Set(1+pos+i, pry, c)
-	}
-	return buf
+		for i, v := range rs {
+			c := Cell{
+				Ch: v,
+				Fg: g.PercentColor,
+			}
+
+			if w+g.innerArea.Min.X > pos+i {
+				c.Bg = g.BarColor
+				if c.Bg == ColorDefault {
+					c.Bg |= AttrReverse
+				}
+
+				if g.PercentColorHighlighted != ColorUndef {
+					c.Fg = g.PercentColorHighlighted
+				}
+			} else {
+				c.Bg = g.Block.Bg
+			}
+
+			buf.Set(1+pos+i, pry, c)
+		}
+		ch <- buf
+	})
+	return <-ch
 }

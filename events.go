@@ -23,7 +23,6 @@ type Event struct {
 }
 
 var sysEvtChs []chan Event
-var sysEvtChsLock sync.Mutex
 
 type EvtKbd struct {
 	KeyStr string
@@ -127,31 +126,26 @@ func hookTermboxEvt() {
 		e := termbox.PollEvent()
 
 		func() {
-			sysEvtChsLock.Lock()
-			defer sysEvtChsLock.Unlock()
-			for _, c := range sysEvtChs {
-				c <- crtTermboxEvt(e)
-				/*			go func(ch chan Event) {
-								ch <- crtTermboxEvt(e)
-							}(c)
-				*/
-			}
+			Defer(func() {
+				for _, c := range sysEvtChs {
+					c <- crtTermboxEvt(e)
+				}
+			})
 		}()
 	}
 }
 
 func NewSysEvtCh() chan Event {
-	sysEvtChsLock.Lock()
-	defer sysEvtChsLock.Unlock()
 	ec := make(chan Event)
-	sysEvtChs = append(sysEvtChs, ec)
+	Defer(func() {
+		sysEvtChs = append(sysEvtChs, ec)
+	})
 	return ec
 }
 
 var DefaultEvtStream = NewEvtStream()
 
 type EvtStream struct {
-	sync.RWMutex
 	srcMap      map[string]chan Event
 	stream      chan Event
 	wg          sync.WaitGroup
@@ -196,23 +190,25 @@ func isPathMatch(pattern, path string) bool {
 }
 
 func (es *EvtStream) Merge(name string, ec chan Event) {
-	es.Lock()
-	defer es.Unlock()
-
 	es.wg.Add(1)
-	es.srcMap[name] = ec
-
+	Defer(func() {
+		es.srcMap[name] = ec
+	})
 	go func(a chan Event) {
 		for n := range a {
 			n.From = name
 			es.stream <- n
 		}
-		es.wg.Done()
+		Defer(func() {
+			es.wg.Done()
+		})
 	}(ec)
 }
 
 func (es *EvtStream) Handle(path string, handler func(Event)) {
+	//	Defer(func() {
 	es.Handlers[cleanPath(path)] = handler
+	//	})
 }
 
 func findMatch(mux map[string]func(Event), path string) string {
@@ -236,29 +232,24 @@ func (es *EvtStream) match(path string) string {
 }
 
 func (es *EvtStream) Hook(f func(Event)) {
-	es.hook = f
+	Defer(func() {
+		es.hook = f
+	})
 }
 
 func (es *EvtStream) Loop() {
 	for e := range es.stream {
+		e := e
 		switch e.Path {
 		case "/sig/stoploop":
 			return
 		}
-		func(a Event) {
-			es.RLock()
-			defer es.RUnlock()
-			if pattern := es.match(a.Path); pattern != "" {
-				es.Handlers[pattern](a)
-			}
-		}(e)
-		func() {
-			es.RLock()
-			defer es.RUnlock()
-			if es.hook != nil {
-				es.hook(e)
-			}
-		}()
+		if pattern := es.match(e.Path); pattern != "" {
+			es.Handlers[pattern](e)
+		}
+		if es.hook != nil {
+			es.hook(e)
+		}
 	}
 }
 

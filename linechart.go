@@ -312,20 +312,21 @@ func (lc *LineChart) plotAxes() Buffer {
 // Buffer implements Bufferer interface.
 func (lc *LineChart) Buffer() Buffer {
 	buf := lc.Block.Buffer()
-	lc.RLock()
-	defer lc.RUnlock()
+	ch := make(chan Buffer)
+	Defer(func() {
+		if lc.Data == nil || len(lc.Data) == 0 {
+			ch <- buf
+			return
+		}
+		lc.calcLayout()
+		buf.Merge(lc.plotAxes())
 
-	if lc.Data == nil || len(lc.Data) == 0 {
-		return buf
-	}
-	lc.calcLayout()
-	buf.Merge(lc.plotAxes())
-
-	if lc.Mode == "dot" {
-		buf.Merge(lc.renderDot())
-	} else {
-		buf.Merge(lc.renderBraille())
-	}
-
-	return buf
+		if lc.Mode == "dot" {
+			buf.Merge(lc.renderDot())
+		} else {
+			buf.Merge(lc.renderBraille())
+		}
+		ch <- buf
+	})
+	return <-ch
 }

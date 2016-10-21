@@ -61,7 +61,11 @@ func Init() error {
 // Close finalizes termui library,
 // should be called after successful initialization when termui's functionality isn't required anymore.
 func Close() {
-	once.Do(tm.Close)
+	once.Do(func() {
+		renderLock.Lock()
+		defer renderLock.Unlock()
+		tm.Close()
+	})
 }
 
 var renderLock sync.Mutex

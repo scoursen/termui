@@ -212,6 +212,8 @@ func (es *EvtStream) Merge(name string, ec chan Event) {
 }
 
 func (es *EvtStream) Handle(path string, handler func(Event)) {
+	es.Lock()
+	defer es.Unlock()
 	es.Handlers[cleanPath(path)] = handler
 }
 
@@ -241,20 +243,16 @@ func (es *EvtStream) Hook(f func(Event)) {
 
 func (es *EvtStream) Loop() {
 	for e := range es.stream {
-		switch e.Path {
-		case "/sig/stoploop":
-			return
-		}
-		func(a Event) {
-			es.RLock()
-			defer es.RUnlock()
-			if pattern := es.match(a.Path); pattern != "" {
-				es.Handlers[pattern](a)
-			}
-		}(e)
 		func() {
-			es.RLock()
-			defer es.RUnlock()
+			es.Lock()
+			defer es.Unlock()
+			switch e.Path {
+			case "/sig/stoploop":
+				return
+			}
+			if pattern := es.match(e.Path); pattern != "" {
+				es.Handlers[pattern](e)
+			}
 			if es.hook != nil {
 				es.hook(e)
 			}
